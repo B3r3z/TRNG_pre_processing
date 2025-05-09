@@ -10,14 +10,14 @@ raw = raw[offset:offset + samples_needed]
 
 lsb3 = raw & 0b00000111
 # Save raw 3 LSB values as uint8 file
-lsb3.tofile('data.u8')
+lsb3.tofile('source.u8')
 # Extract bits (LSB first per sample)
 bit_stream = np.vstack([((lsb3 >> i) & 1) for i in [0,1,2]]).T.flatten()[:N_BITS]
 # Pack bits into bytes and save
 bit_bytes = np.packbits(bit_stream)
-with open('data.bin', 'wb') as f:
+with open('source.bin', 'wb') as f:
     f.write(bit_bytes)
-print(f"Generated {N_BITS} bits, saved to data.bin")
+print(f"Generated {N_BITS} bits, saved to source.bin")
 
 
 # Histogram for raw audio samples
