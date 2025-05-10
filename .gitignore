@@ -3,4 +3,4 @@
 # Except this .gitignore file and pre_procesing.py
 !.gitignore
 !pre_procesing.py
-!readme.md
+!README.md
