@@ -1,10 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
+import ccml # Zaimportowano moduł ccml
 
 raw = np.fromfile('raw_audio_u8_44k.u8', dtype=np.uint8) # Read raw audio samples, change the file name as needed
 offset = 10000
-N_BITS = 13_000_000
+N_BITS = 13000000
 samples_needed = int(np.ceil(N_BITS / 3))
 raw = raw[offset:offset + samples_needed]
 
@@ -27,6 +28,8 @@ plt.title("Histogram of Raw Audio Samples")
 plt.xlabel("Sample Value")
 plt.ylabel("Frequency")
 plt.yscale('log')
+plt.savefig("raw_audio_histogram.png") # Zapis wykresu do pliku
+plt.close() # Zamknięcie figury
 
 # Probability distribution for raw audio samples
 plt.figure(figsize=(10, 6)) # Adding figure size for better readability
@@ -39,19 +42,19 @@ plt.xlabel("Sample Value (x)")
 plt.ylabel("Occurrence Frequency (p_i)")
 plt.xlim([-0.5, 255.5]) # Better X-axis fit
 # plt.ylim([0, max(probabilities_raw) * 1.1]) # Optional: adjust Y-axis
+plt.savefig("raw_audio_distribution.png") # Zapis wykresu do pliku
+plt.close() 
 
-plt.show()
-
-# Histogram for 3 LSB values
-plt.figure()
-plt.hist(lsb3, bins=8, range=(-0.5, 7.5), color='purple', alpha=0.7, rwidth=0.8) # 8 bins for values 0-7
-plt.title("Histogram of 3 LSB Values")
-plt.xlabel("3 LSB Value (0-7)")
-plt.ylabel("Frequency")
-plt.xticks(range(8))
-plt.yscale('log')
-
-plt.show()
+## Histogram for 3 LSB values
+#plt.figure()
+#plt.hist(lsb3, bins=8, range=(-0.5, 7.5), color='purple', alpha=0.7, rwidth=0.8) # 8 bins for values 0-7
+#plt.title("Histogram of 3 LSB Values")
+#plt.xlabel("3 LSB Value (0-7)")
+#plt.ylabel("Frequency")
+#plt.xticks(range(8))
+#plt.yscale('log')
+#plt.savefig("lsb3_histogram.png") # Zapis wykresu do pliku
+#plt.close() # Zamknięcie figury
 
 # Entropy calculation
 cnt = Counter(lsb3)
@@ -71,6 +74,14 @@ if not entropy_terms:
 else:
     H = -np.sum(entropy_terms)
 
-print("Entropy of 3 LSB:", H, "bits per symbol (max 3)")
+print("Entropy of 3 LSB:", H, "bits per symbol")
+
+
+ccml.run_ccml(filename="source.bin", 
+               output_filename="post.bin", 
+               N_target_bits=N_BITS, 
+               plot_filename="ccml_post_bin_distribution.png")
+
+print("Pre-processing and CCML processing complete. Plots saved to files.")
 
 
