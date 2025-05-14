@@ -1,6 +1,7 @@
 # Ignore everything
 *
-# Except this .gitignore file and pre_procesing.py
+# Except this .gitignore file and project source files
 !.gitignore
-!pre_procesing.py
 !README.md
+!ccml.py
+!pre_procesing.py
