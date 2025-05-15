@@ -121,20 +121,30 @@ def run_ccml(filename: str = "source.bin",
         for _ in range(gamma):
             states = ccml_step(states, alpha, epsilon)
 
-        z = states.view(np.uint64)
+        # Create a correct view of states as uint64 array
+        z = np.zeros(L, dtype=np.uint64)
+        for k in range(L):
+            # Convert float values to uint64 by scaling and casting
+            z[k] = np.uint64(states[k] * (2**64 - 1))
 
         for j in range(L // 2):
             idx_b = j + (L // 2)
             swap_val = bit_swap64(z[idx_b], word_bits // 2)
-            z[j] = (z[j] + swap_val) & MOD64
+            z[j] = np.uint64((np.uint64(z[j]) + np.uint64(swap_val)) & MOD64)
 
         for j in range(L // 2):
             if out_pos >= N_target_bits:
                 break
+                
+            # Convert z[j] to bytes properly
+            z_bytes = z[j].tobytes()
             if sys.byteorder == 'little':
-                bits_from_z_word = np.unpackbits(z[j].astype(np.uint64).byteswap().view(np.uint8))
-            else:
-                bits_from_z_word = np.unpackbits(z[j].astype(np.uint64).view(np.uint8))
+                # For little-endian, swap the byte order
+                z_bytes = bytes(reversed(z_bytes))
+                
+            # Convert bytes to numpy array of uint8 before unpacking bits
+            bits_from_z_word = np.unpackbits(np.frombuffer(z_bytes, dtype=np.uint8))
+            
             take = min(word_bits, N_target_bits - out_pos)
             output_bits[out_pos : out_pos + take] = bits_from_z_word[:take]
             out_pos += take
