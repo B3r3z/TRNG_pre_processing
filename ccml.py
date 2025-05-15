@@ -130,7 +130,8 @@ def run_ccml(filename: str = "source.bin",
         for j in range(L // 2):
             idx_b = j + (L // 2)
             swap_val = bit_swap64(z[idx_b], word_bits // 2)
-            z[j] = np.uint64((np.uint64(z[j]) + np.uint64(swap_val)) & MOD64)
+            # Change from addition to XOR: z_i = z_i ⊕ swap(z_{i+L/2})
+            z[j] = np.uint64(np.uint64(z[j]) ^ np.uint64(swap_val))
 
         for j in range(L // 2):
             if out_pos >= N_target_bits:
