@@ -29,7 +29,7 @@ System oferuje dwa główne tryby działania:
 
 Skrypt `pre_procesing.py` wykonuje przetwarzanie wsadowe istniejących plików audio:
 
-1. Wczytuje surowe próbki audio z pliku `.u8` (domyślnie `data/raw_audio_u8_44k.u8`).
+1. Wczytuje surowe próbki audio z pliku wejściowego (domyślnie `data/raw_audio_u8_44k.u8`).
 2. Wybiera określony fragment danych na podstawie zdefiniowanego offsetu i wymaganej liczby bitów.
 3. Ekstrahuje 3 najmniej znaczące bity (LSB) z każdej próbki audio, gdzie występuje największa entropia.
 4. Konwertuje sekwencję 3 LSB na ciągły strumień bitów.
