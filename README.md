@@ -172,7 +172,6 @@ sudo dnf install portaudio-devel
 * `EPSILON` - parametr sprzężenia (domyślnie 0.05)
 * `L` - rozmiar sieci CCML (domyślnie 128 lub 8, zależnie od implementacji)
 
-## Autorzy
 
 Projekt TRNG oparty na CCML został zainspirowany pracą Teh, J. S., Samsudin, A., & Al-Mazrooie, M. (2020) dotyczącą post-processingu generatorów liczb losowych przy użyciu chaotycznych sieci sprzężonych.
 
