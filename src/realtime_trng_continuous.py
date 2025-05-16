@@ -26,7 +26,7 @@ OUTPUT_DIR = "output"
 MAX_BUFFER_SIZE = 20000000
 BUFFER_SAFETY_MARGIN = 0.1
 
-# Utwórz katalog wyjściowy jeśli nie istnieje
+
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
