@@ -1,7 +1,40 @@
-# Ignore everything
-*
-# Except this .gitignore file and project source files
-!.gitignore
-!README.md
-!ccml.py
-!pre_procesing.py
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+
+# Wygenerowane pliki danych
+output/
+data/*.bin
+
+# Pliki środowiska IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Pliki tymczasowe
+*.log
+*.tmp
+.coverage
+htmlcov/
