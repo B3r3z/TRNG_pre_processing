@@ -167,24 +167,30 @@ def run_ccml(filename: str = "source.bin",
             if byte_array_for_stats.size > 0:
                 counts = Counter(byte_array_for_stats)
                 probs = np.array([counts.get(i, 0) / byte_array_for_stats.size for i in range(256)])
+                # 1. Wykres liniowy
                 plt.figure(figsize=(12, 6))
                 plt.bar(range(256), probs, width=1.0, color='darkslateblue')
                 plt.title(f"Rozkład bajtów w {os.path.basename(output_filename)}")
-                plt.xlabel("wartość bajtu (0-255)")
-                plt.ylabel("prawdopodobieństwo")
+                plt.xlabel("Wartość bajtu (0-255)")
+                plt.ylabel("Prawdopodobieństwo")
                 plt.xlim(-0.5, 255.5)
                 plt.ylim(0, probs.max() * 1.1 if probs.max() > 0 else 0.1)
                 plt.grid(True, alpha=0.3)
+                plt.tight_layout()
                 
+                # Oblicz entropię
                 entropy = -sum(p * np.log2(p) for p in probs if p > 0)
                 global last_entropy
                 last_entropy = entropy
                 if verbose:
                     print(f"Shannon entropy ({os.path.basename(output_filename)}): {entropy:.4f} bits/symbol")
+                    
+                plot_basename = os.path.splitext(plot_filename)[0]
                 plt.savefig(plot_filename, dpi=150, bbox_inches="tight")
                 if verbose:
                     print(f"Wykres zapisany → {plot_filename}")
                 plt.close()
+                
             else:
                 if verbose:
                     print("Brak danych bajtowych do wygenerowania wykresu.")

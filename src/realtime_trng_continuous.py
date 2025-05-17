@@ -3,8 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
-import ccml_optimized as ccml
-#import ccml
+import ccml
 import pyaudio
 import time
 import os
@@ -20,7 +19,7 @@ CHANNELS = 1
 RATE = 44100
 DEVICE_INDEX = None
 
-N_BITS_PER_CHUNK = 13000000  # wymagane dla testów NIST
+N_BITS_PER_CHUNK = 13_000_000  # wymagane dla testów NIST
 INTERVAL_SECONDS = 120
 SAMPLE_TIME = 5
 OUTPUT_DIR = "output"
@@ -35,9 +34,10 @@ if not os.path.exists(OUTPUT_DIR):
 global_lsb3_buffer = np.array([], dtype=np.uint8)
 global_raw_buffer = np.array([], dtype=np.uint8)
 # Zmienne do przechowywania informacji o ostatniej entropii i pliku
-last_entropy_lsb3 = 0.0
+last_entropy_source = 0.0
 last_entropy_post = 0.0
 last_output_file = ""
+
 def get_timestamp_filename(prefix, extension):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{OUTPUT_DIR}/{prefix}_{timestamp}.{extension}"
@@ -83,8 +83,10 @@ def process_audio_samples(timestamp):
         
         lsb3_to_use = lsb3_to_use.astype(np.uint8)
         
+        # Extract the 3 LSB and flatten them into a single bit stream
         bit_stream = np.vstack([((lsb3_to_use >> i) & 1) for i in [0,1,2]]).T.flatten()[:N_BITS_PER_CHUNK]
         
+        # Pack the bits into bytes for file storage
         bit_bytes = np.packbits(bit_stream)
         source_bin_filename = f"{OUTPUT_DIR}/source_{timestamp_short}.bin"
         
@@ -109,11 +111,11 @@ def process_audio_samples(timestamp):
         traceback.print_exc()
         return None, None
     
-    # Generowanie wykresów
-    generate_plots(raw_to_use, lsb3_to_use, timestamp_short)
+    # Generowanie wykresów dla surowych danych audio
+    generate_raw_plots(raw_to_use, timestamp_short)
     
-    # Obliczanie entropii
-    calculate_entropy(lsb3_to_use)
+    # Obliczanie entropii dla pliku source.bin
+    source_entropy = calculate_source_entropy(bit_stream)
     
     # Przetwarzanie CCML
     post_bin_filename = f"{OUTPUT_DIR}/post_{timestamp_short}.bin"
@@ -160,89 +162,81 @@ def add_samples_to_buffer(raw_samples):
     if len(global_raw_buffer) > len(global_lsb3_buffer):
         global_raw_buffer = global_raw_buffer[-len(global_lsb3_buffer):]
 
-# Funkcja do generowania wykresów
-def generate_plots(raw, lsb3, timestamp):
+# Funkcja do generowania wykresów dla surowych danych audio
+def generate_raw_plots(raw, timestamp):
+    # Histogram surowych próbek audio
     plt.figure(figsize=(10, 6))
-    plt.hist(raw, bins=256, color='blue', alpha=0.7)
+    
+    # Sprawdź, czy są jakiekolwiek dane
+    if len(raw) == 0:
+        print("Ostrzeżenie: Brak danych próbek audio do wygenerowania histogramu.")
+        plt.text(128, 1, "Brak danych", horizontalalignment='center', fontsize=14)
+        plt.ylim([0.1, 10])
+    else:
+        plt.hist(raw, bins=256, color='blue', alpha=0.7)
+        plt.yscale('log')
+    
     plt.title("Histogram próbek audio")
     plt.xlabel("Wartość próbki")
     plt.ylabel("Częstotliwość")
-    plt.yscale('log')
     plt.xlim([-0.5, 255.5])
     plt.grid(True, alpha=0.3)
-    plt.savefig(f"{OUTPUT_DIR}/raw_hist_{timestamp}.png")
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/raw_hist_{timestamp}.png", dpi=150)
     plt.close()
-    
+
+    # Rozkład prawdopodobieństwa surowych próbek audio
     plt.figure(figsize=(10, 6))
-    counts_raw = Counter(raw)
-    probabilities_raw = np.array([counts_raw[i]/len(raw) if len(raw) > 0 else 0 for i in range(256)])
-    plt.bar(range(256), probabilities_raw, color='darkslateblue', width=1.0)
+    
+    # Sprawdź, czy są jakiekolwiek dane
+    if len(raw) == 0:
+        print("Ostrzeżenie: Brak danych próbek audio do wygenerowania rozkładu.")
+        plt.text(128, 0.5, "Brak danych", horizontalalignment='center', fontsize=14)
+        plt.ylim([0, 1.0])
+    else:
+        counts_raw = Counter(raw)
+        probabilities_raw = np.array([counts_raw.get(i, 0)/len(raw) for i in range(256)])
+        plt.bar(range(256), probabilities_raw, color='darkslateblue', width=1.0)
+        
+        # Ustaw odpowiedni zakres osi Y, aby dane były widoczne
+        max_prob = probabilities_raw.max()
+        if max_prob > 0:
+            plt.ylim([0, max_prob * 1.1])  # Dodaj 10% marginesu na górze
+        else:
+            plt.ylim([0, 0.1])  # Domyślna wartość jeśli nie ma danych
+    
     plt.title("Empiryczny rozkład prawdopodobieństwa próbek audio")
     plt.xlabel("Wartość próbki (x)")
     plt.ylabel("Częstotliwość występowania (p_i)")
     plt.xlim([-0.5, 255.5])
     
-    # Ustaw odpowiedni zakres osi Y, aby dane były widoczne
-    max_prob = probabilities_raw.max()
-    if max_prob > 0:
-        plt.ylim([0, max_prob * 1.1])  # Dodaj 10% marginesu na górze
-    
     # Dodaj siatkę dla lepszej czytelności
     plt.grid(True, alpha=0.3)
-    
-    plt.savefig(f"{OUTPUT_DIR}/raw_dist_{timestamp}.png")
-    plt.close()
-    
-    plt.figure(figsize=(10, 6))
-    plt.hist(lsb3, bins=8, range=(-0.5, 7.5), color='purple', alpha=0.7, rwidth=0.8)
-    plt.title("Histogram wartości 3 LSB")
-    plt.xlabel("Wartość 3 LSB (0-7)")
-    plt.ylabel("Częstotliwość")
-    plt.xticks(range(8))
-    plt.yscale('log')
-    plt.grid(True, alpha=0.3)
-    
-    # Dodaj wartości nad słupkami dla lepszej czytelności
-    counts = np.bincount(lsb3, minlength=8)
-    for i, count in enumerate(counts):
-        plt.text(i, count, str(count), ha='center', va='bottom')
-        
-    plt.savefig(f"{OUTPUT_DIR}/lsb3_hist_{timestamp}.png")
-    plt.close()
-    
-    # Nowy wykres: rozkład prawdopodobieństwa wartości 3 LSB
-    plt.figure(figsize=(10, 6))
-    counts_lsb3 = Counter(lsb3)
-    probabilities_lsb3 = np.array([counts_lsb3[i]/len(lsb3) if len(lsb3) > 0 else 0 for i in range(8)])
-    plt.bar(range(8), probabilities_lsb3, color='darkviolet', width=0.7)
-    plt.title("Empiryczny rozkład prawdopodobieństwa wartości 3 LSB")
-    plt.xlabel("Wartość 3 LSB (0-7)")
-    plt.ylabel("Prawdopodobieństwo")
-    plt.xlim([-0.5, 7.5])
-    plt.xticks(range(8))
-    
-    # Ustaw odpowiedni zakres osi Y
-    max_prob_lsb3 = probabilities_lsb3.max()
-    if max_prob_lsb3 > 0:
-        plt.ylim([0, max_prob_lsb3 * 1.1])
-    
-    # Dodaj siatkę i wartości nad słupkami
-    plt.grid(True, alpha=0.3)
-    
-    for i, prob in enumerate(probabilities_lsb3):
-        if prob > 0:
-            plt.text(i, prob, f"{prob:.4f}", ha='center', va='bottom', fontsize=9, rotation=45)
-    
-    plt.savefig(f"{OUTPUT_DIR}/lsb3_dist_{timestamp}.png")
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/raw_dist_{timestamp}.png", dpi=150)
     plt.close()
 
-# Funkcja do obliczania entropii
-def calculate_entropy(lsb3):
-    global last_entropy_lsb3
+# Funkcja do obliczania entropii dla source.bin (strumień bitów)
+def calculate_source_entropy(bit_stream):
+    global last_entropy_source
     
-    cnt = Counter(lsb3)
-    probabilities = np.array([cnt[i]/len(lsb3) for i in range(8)])
+    # Konwersja strumienia bitów na bajty dla analizy
+    bit_count = len(bit_stream)
+    padding = (8 - bit_count % 8) % 8
+    padded_bits = np.pad(bit_stream, (0, padding), 'constant')
     
+    # Przekształć strumień bitów w bajty dla analizy entropii
+    byte_array = np.packbits(padded_bits.reshape(-1, 8))
+    
+    # Analizuj rozkład bajtów i generuj wykresy
+    timestamp = datetime.datetime.now().strftime("%H%M%S")
+    generate_source_plots(byte_array, timestamp)
+    
+    # Obliczanie entropii na poziomie bajtów
+    cnt = Counter(byte_array)
+    probabilities = np.array([cnt.get(i, 0)/len(byte_array) for i in range(256)])
+    
+    # Obliczanie entropii z logarytmem o podstawie 2 (informacja w bitach)
     entropy_terms = []
     for p_i in probabilities:
         if p_i > 0:
@@ -253,9 +247,79 @@ def calculate_entropy(lsb3):
     else:
         H = -np.sum(entropy_terms)
     
-    last_entropy_lsb3 = H
-    print(f"Entropia 3 LSB: {H:.4f} bitów na symbol")
+    # Normalizacja do bitów na symbol (bajt)
+    H_normalized = H / 8.0
+    
+    # Obliczanie entropii bezpośrednio na poziomie bitów
+    bit_array = np.unpackbits(byte_array)
+    bit_counts = Counter(bit_array)
+    p_0 = bit_counts.get(0, 0)/len(bit_array)
+    p_1 = bit_counts.get(1, 0)/len(bit_array)
+    
+    H_bits = 0.0
+    if p_0 > 0:
+        H_bits -= p_0 * np.log2(p_0)
+    if p_1 > 0:
+        H_bits -= p_1 * np.log2(p_1)
+    
+    global last_entropy_source
+    last_entropy_source = H_normalized  # Zachowujemy znormalizowaną entropię bajtową
+    
+    # Wyświetl obie wartości entropii dla porównania
+    print(f"Entropia source.bin: {H:.4f} bitów/symbol (bajt)")
+    print(f"Entropia source.bin: {H_normalized:.4f} bitów/bit")
+    print(f"Entropia bitowa: {H_bits:.4f} bitów/bit (idealna: 1.0)")
+    
+    # Zwróć pełną wartość entropii (bitów/bajt) a nie znormalizowaną
     return H
+
+def generate_source_plots(byte_array, timestamp):
+    # 1) Histogram rozkładu prawdopodobieństwa bajtów
+    plt.figure(figsize=(10,6))
+    plt.hist(byte_array,
+             bins=256,
+             range=(0,255),
+             density=True,       # prawdopodobieństwo
+             color='darkslateblue',
+             alpha=0.8)
+    plt.title("Empiryczny rozkład bajtów w source.bin")
+    plt.xlabel("Wartość bajtu")
+    plt.ylabel("Prawdopodobieństwo p_i")
+    # odkomentuj, jeśli chcesz log-skalę:
+    # plt.yscale('log')
+    plt.xlim(-0.5, 255.5)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/source_dist_{timestamp}.png", dpi=150)
+    plt.close()
+
+    # 2) (opcjonalnie) rozkład bitów 0/1 – tylko jeśli chcesz
+    bit_array = np.unpackbits(byte_array, bitorder='big')
+    p0 = np.mean(bit_array==0)
+    p1 = 1 - p0
+    plt.figure(figsize=(6,4))
+    plt.bar([0,1],[p0,p1], color=['teal','forestgreen'])
+    plt.title("Rozkład bitów w source.bin")
+    plt.xticks([0,1])
+    plt.ylabel("Prawdopodobieństwo")
+    plt.ylim(0,1)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/source_bits_{timestamp}.png", dpi=150)
+    plt.close()
+
+    # 3) Zwracamy prawdopodobieństwa bajtowe, jeśli potrzebujesz
+    counts = Counter(byte_array)
+    probs = np.array([counts[i]/len(byte_array) for i in range(256)])
+    return probs
+
+
+# Zmienne do przechowywania informacji o ostatniej entropii i pliku
+last_entropy_source = 0.0
+last_entropy_post = 0.0
+last_output_file = ""
+
+
 
 # Główna funkcja nagrywania i przetwarzania strumienia audio
 def run_continuous_trng():
@@ -309,12 +373,16 @@ def run_continuous_trng():
             
             # Status ostatniej entropii
             print("\n--- Informacje o entropii ---")
-            print(f"Ostatnia entropia 3 LSB: {last_entropy_lsb3:.4f} bitów na symbol")
+            # Pokaż entropię obu plików w bitach/symbol dla spójnego porównania
+            bit_per_symbol_source = last_entropy_source * 8  # Konwertuj z bit/bit na bit/symbol
+            print(f"Entropia source.bin: {bit_per_symbol_source:.4f} bitów/symbol | {last_entropy_source:.4f} bitów/bit")
+            
             # Informacja o ostatnim pliku
             if last_output_file:
                 print(f"Ostatni plik wyjściowy: {os.path.basename(last_output_file)}")
                 if last_entropy_post > 0:
-                    print(f"Entropia po CCML: {last_entropy_post:.4f} bitów na symbol")
+                    post_bit_per_bit = last_entropy_post / 8  # Konwertuj z bit/symbol na bit/bit
+                    print(f"Entropia po CCML: {last_entropy_post:.4f} bitów/symbol | {post_bit_per_bit:.4f} bitów/bit")
             
             # Status bufora
             buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
