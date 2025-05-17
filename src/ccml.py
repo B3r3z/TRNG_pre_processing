@@ -8,6 +8,7 @@ import os
 # 1. Chaotic tent map & CCML lattice
 # ---------------------------------------------------------------------
 ALPHA = 1.99999   
+last_entropy = 0.0  # Globalna zmienna do przechowywania ostatniej entropii
 
 def piecewise_map(x: float, alpha: float = ALPHA) -> float:
     #"""Mapowanie kawałkowe (tent map) z parametrem α."""
@@ -32,10 +33,13 @@ def ccml_step(states: np.ndarray,
 # 2. Operacje bitowe
 # ---------------------------------------------------------------------
 def bit_swap64(val: np.uint64, L_half: int = 32) -> np.uint64:
-    mask = (np.uint64(1) << L_half) - np.uint64(1)
-    left  = (val >> L_half) & mask
-    right =  val & mask
-    return (right << L_half) | left
+    # Zamiast: mask = (np.uint64(1) << L_half) - np.uint64(1)
+    # Użyj:
+    mask = np.left_shift(np.uint64(1), L_half) - np.uint64(1)
+    
+    left  = np.right_shift(val, L_half) & mask
+    right = val & mask
+    return np.bitwise_or(np.left_shift(right, L_half), left)
 
 
 # ---------------------------------------------------------------------
@@ -91,7 +95,8 @@ def run_ccml(filename: str = "source.bin",
              omega: float = 0.5,
              b_perturb: int = 3,
              word_bits: int = 64, 
-             plot_filename: str | None = None) -> None:
+             plot_filename: str | None = None,
+             verbose: bool = True) -> None:
 
     input_bits = read_bits_from_binfile(filename)
     gamma = L // 2
@@ -104,7 +109,8 @@ def run_ccml(filename: str = "source.bin",
     while out_pos < N_target_bits:
         needed = L * b_perturb
         if in_pos + needed > input_bits.size:
-            print(f"Ostrzeżenie: Brak wystarczającej liczby bitów wejściowych ({input_bits.size - in_pos}) dla pełnej rundy perturbacji (potrzebne: {needed}). Zakończenie.")
+            if verbose:
+                print(f"Ostrzeżenie: Brak wystarczającej liczby bitów wejściowych ({input_bits.size - in_pos}) dla pełnej rundy perturbacji (potrzebne: {needed}). Zakończenie.")
             break
         
         current_states_before_perturb = np.copy(states)
@@ -168,19 +174,29 @@ def run_ccml(filename: str = "source.bin",
                 plt.ylabel("prawdopodobieństwo")
                 plt.xlim(-0.5, 255.5)
                 plt.ylim(0, probs.max() * 1.1 if probs.max() > 0 else 0.1)
+                plt.grid(True, alpha=0.3)
                 
                 entropy = -sum(p * np.log2(p) for p in probs if p > 0)
-                print(f"Shannon entropy ({os.path.basename(output_filename)}): {entropy:.4f} bits/symbol")
+                global last_entropy
+                last_entropy = entropy
+                if verbose:
+                    print(f"Shannon entropy ({os.path.basename(output_filename)}): {entropy:.4f} bits/symbol")
                 plt.savefig(plot_filename, dpi=150, bbox_inches="tight")
-                print(f"Wykres zapisany → {plot_filename}")
+                if verbose:
+                    print(f"Wykres zapisany → {plot_filename}")
                 plt.close()
             else:
-                print("Brak danych bajtowych do wygenerowania wykresu.")
+                if verbose:
+                    print("Brak danych bajtowych do wygenerowania wykresu.")
         else:
-            print("Brak bitów wyjściowych do wygenerowania wykresu.")
+            if verbose:
+                print("Brak bitów wyjściowych do wygenerowania wykresu.")
 
     save_bits_to_binfile(final_output_bits, output_filename)
-    print(f"{output_filename} zapisany ({final_output_bits.size} bitów).")
+    if verbose:
+        print(f"{output_filename} zapisany ({final_output_bits.size} bitów).")
+    
+    return final_output_bits
 
 # ---------------------------------------------------------------------
 # 6. Uruchamianie ze skryptu
@@ -215,6 +231,7 @@ if __name__ == "__main__":
              omega=0.5,
              b_perturb=3,
              word_bits=64,
-             plot_filename=plot_png)
+             plot_filename=plot_png,
+             verbose=True)
     print("== CCML zakończone ==")
 

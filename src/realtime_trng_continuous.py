@@ -60,7 +60,7 @@ def record_audio_samples(p, device_index, duration_seconds):
     stream.close()
     
     raw_samples = np.concatenate(frames)
-    print(f"Zebrano {len(raw_samples)} próbek audio")
+    # Komunikat został usunięty stąd, aby nie pojawiał się i nie znikał po wyczyszczeniu terminala
     return raw_samples
 
 def process_audio_samples(timestamp):
@@ -122,12 +122,15 @@ def process_audio_samples(timestamp):
         filename=source_bin_filename,
         output_filename=post_bin_filename,
         N_target_bits=N_BITS_PER_CHUNK,
-        plot_filename=plot_filename
+        plot_filename=plot_filename,
+        verbose=False  # Mniej komunikatów diagnostycznych
     )
     
-    # Zapisz informacje o ostatnim pliku
-    global last_output_file
+    # Zapisz informacje o ostatnim pliku i entropii
+    global last_output_file, last_entropy_post
     last_output_file = post_bin_filename
+    if hasattr(ccml, 'last_entropy'):
+        last_entropy_post = ccml.last_entropy
     
     return source_bin_filename, post_bin_filename
 
@@ -152,15 +155,10 @@ def add_samples_to_buffer(raw_samples):
     if len(global_lsb3_buffer) > max_buffer_size:
         excess = len(global_lsb3_buffer) - max_buffer_size
         global_lsb3_buffer = global_lsb3_buffer[excess:]
-        print(f"Bufor LSB przycięty o {excess:,} próbek (przekroczenie limitu {MAX_BUFFER_MULTIPLIER}x)")
+        # Usunięto wyświetlanie komunikatu tutaj, zostanie pokazane w głównej pętli
     
     if len(global_raw_buffer) > len(global_lsb3_buffer):
         global_raw_buffer = global_raw_buffer[-len(global_lsb3_buffer):]
-    
-    buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
-    print(f"Bufor zawiera {len(global_lsb3_buffer):,} próbek 3LSB ({len(global_lsb3_buffer)*3:,} bitów)")
-    print(f"Potrzeba {required_samples:,} próbek ({N_BITS_PER_CHUNK:,} bitów)")
-    print(f"Postęp: {buffer_percentage:.1f}% (limit bufora: {MAX_BUFFER_MULTIPLIER:.1f}x)")
 
 # Funkcja do generowania wykresów
 def generate_plots(raw, lsb3, timestamp):
@@ -170,6 +168,8 @@ def generate_plots(raw, lsb3, timestamp):
     plt.xlabel("Wartość próbki")
     plt.ylabel("Częstotliwość")
     plt.yscale('log')
+    plt.xlim([-0.5, 255.5])
+    plt.grid(True, alpha=0.3)
     plt.savefig(f"{OUTPUT_DIR}/raw_hist_{timestamp}.png")
     plt.close()
     
@@ -181,6 +181,15 @@ def generate_plots(raw, lsb3, timestamp):
     plt.xlabel("Wartość próbki (x)")
     plt.ylabel("Częstotliwość występowania (p_i)")
     plt.xlim([-0.5, 255.5])
+    
+    # Ustaw odpowiedni zakres osi Y, aby dane były widoczne
+    max_prob = probabilities_raw.max()
+    if max_prob > 0:
+        plt.ylim([0, max_prob * 1.1])  # Dodaj 10% marginesu na górze
+    
+    # Dodaj siatkę dla lepszej czytelności
+    plt.grid(True, alpha=0.3)
+    
     plt.savefig(f"{OUTPUT_DIR}/raw_dist_{timestamp}.png")
     plt.close()
     
@@ -191,7 +200,40 @@ def generate_plots(raw, lsb3, timestamp):
     plt.ylabel("Częstotliwość")
     plt.xticks(range(8))
     plt.yscale('log')
+    plt.grid(True, alpha=0.3)
+    
+    # Dodaj wartości nad słupkami dla lepszej czytelności
+    counts = np.bincount(lsb3, minlength=8)
+    for i, count in enumerate(counts):
+        plt.text(i, count, str(count), ha='center', va='bottom')
+        
     plt.savefig(f"{OUTPUT_DIR}/lsb3_hist_{timestamp}.png")
+    plt.close()
+    
+    # Nowy wykres: rozkład prawdopodobieństwa wartości 3 LSB
+    plt.figure(figsize=(10, 6))
+    counts_lsb3 = Counter(lsb3)
+    probabilities_lsb3 = np.array([counts_lsb3[i]/len(lsb3) if len(lsb3) > 0 else 0 for i in range(8)])
+    plt.bar(range(8), probabilities_lsb3, color='darkviolet', width=0.7)
+    plt.title("Empiryczny rozkład prawdopodobieństwa wartości 3 LSB")
+    plt.xlabel("Wartość 3 LSB (0-7)")
+    plt.ylabel("Prawdopodobieństwo")
+    plt.xlim([-0.5, 7.5])
+    plt.xticks(range(8))
+    
+    # Ustaw odpowiedni zakres osi Y
+    max_prob_lsb3 = probabilities_lsb3.max()
+    if max_prob_lsb3 > 0:
+        plt.ylim([0, max_prob_lsb3 * 1.1])
+    
+    # Dodaj siatkę i wartości nad słupkami
+    plt.grid(True, alpha=0.3)
+    
+    for i, prob in enumerate(probabilities_lsb3):
+        if prob > 0:
+            plt.text(i, prob, f"{prob:.4f}", ha='center', va='bottom', fontsize=9, rotation=45)
+    
+    plt.savefig(f"{OUTPUT_DIR}/lsb3_dist_{timestamp}.png")
     plt.close()
 
 # Funkcja do obliczania entropii
@@ -248,15 +290,18 @@ def run_continuous_trng():
             cycle_start_time = time.time()
             current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Wyczyść terminal
+            print(f"\nRozpoczęcie nagrywania próbek audio na {SAMPLE_TIME} sekund...")
+            # Nagraj próbki audio w cichym trybie (bez wyświetlania komunikatów podczas nagrywania)
+            raw_samples = record_audio_samples(p, device_index, SAMPLE_TIME)
+            
+            # Wyczyść terminal dopiero po nagraniu próbek
             os.system('clear' if os.name == 'posix' else 'cls')
             
             # Nagłówek informacyjny
             print(f"=== TRNG - Status [{datetime.datetime.now().strftime('%H:%M:%S')}] ===")
             print(f"Urządzenie audio: {p.get_device_info_by_index(device_index)['name'] if device_index is not None else 'domyślne'}")
             
-            # Nagraj próbki audio
-            raw_samples = record_audio_samples(p, device_index, SAMPLE_TIME)
+            # Dodaj próbki do bufora
             add_samples_to_buffer(raw_samples)
             
             time_since_last_processing = time.time() - last_processing_time
@@ -268,18 +313,21 @@ def run_continuous_trng():
             # Informacja o ostatnim pliku
             if last_output_file:
                 print(f"Ostatni plik wyjściowy: {os.path.basename(last_output_file)}")
-                # Próba wczytania entropii z ccml_optimized
-                try:
-                    if hasattr(ccml, 'last_entropy') and ccml.last_entropy > 0:
-                        print(f"Entropia po CCML: {ccml.last_entropy:.4f} bitów na symbol")
-                except:
-                    pass
+                if last_entropy_post > 0:
+                    print(f"Entropia po CCML: {last_entropy_post:.4f} bitów na symbol")
             
             # Status bufora
             buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
             print(f"\n--- Status bufora ---")
-            print(f"Postęp: {buffer_percentage:.1f}% ({len(global_lsb3_buffer):,}/{required_samples:,} próbek)")
+            print(f"Bufor zawiera {len(global_lsb3_buffer):,} próbek 3LSB ({len(global_lsb3_buffer)*3:,} bitów)")
+            print(f"Potrzeba {required_samples:,} próbek ({N_BITS_PER_CHUNK:,} bitów)")
+            print(f"Postęp: {buffer_percentage:.1f}% (limit bufora: {MAX_BUFFER_MULTIPLIER:.1f}x)")
             print(f"Czas od ostatniego wygenerowania pliku: {int(time_since_last_processing)} s / {INTERVAL_SECONDS} s")
+            
+            # Jeśli bufor został przycięty
+            max_buffer_size = int(required_samples * MAX_BUFFER_MULTIPLIER)
+            if len(global_lsb3_buffer) >= max_buffer_size:
+                print(f"Status: Bufor osiągnął maksymalną pojemność ({max_buffer_size:,} próbek)")
             
             # Przetwarzanie
             if time_since_last_processing >= INTERVAL_SECONDS:
@@ -295,8 +343,9 @@ def run_continuous_trng():
             
             cycle_duration = time.time() - cycle_start_time
             
-            target_cycle_time = max(0.5, SAMPLE_TIME * 0.2)
-            short_sleep = max(0.1, min(target_cycle_time - cycle_duration, SAMPLE_TIME * 0.5))
+            # Dłuższy czas między cyklami, aby użytkownik mógł odczytać status
+            target_cycle_time = max(1.0, SAMPLE_TIME * 0.5)
+            short_sleep = max(1.0, min(target_cycle_time - cycle_duration, SAMPLE_TIME * 0.5))
             
             print(f"\nCykl nagrywania: {cycle_duration:.2f}s, następny cykl za {short_sleep:.2f}s")
             print("\nNaciśnij Ctrl+C aby zakończyć")

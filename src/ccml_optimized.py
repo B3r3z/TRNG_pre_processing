@@ -189,6 +189,7 @@ def analyze_distribution(bits, plot_filename=None):
     plt.ylabel("prawdopodobieństwo")
     plt.xlim(-0.5, 255.5)
     plt.ylim(0, probs.max() * 1.1 if probs.max() > 0 else 0.1)
+    plt.grid(True, alpha=0.3)
     
     # Oblicz i wyświetl entropię
     entropy = -sum(p * np.log2(p) for p in probs if p > 0)
