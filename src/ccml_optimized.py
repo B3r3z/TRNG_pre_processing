@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# filepath: /home/bartosz/Documents/PROJECT/TRNG/ccml_optimized.py
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,19 +7,17 @@ import sys
 import os
 from numba import njit, prange
 
-# ---------------------------------------------------------------------
-# 1. Chaotic tent map & CCML lattice - optymalizacja Numba
-# ---------------------------------------------------------------------
 ALPHA = 1.99999   
+last_entropy = 0.0
 
 @njit
 def piecewise_map(x: float, alpha: float = ALPHA) -> float:
-    """Mapowanie kawałkowe (tent map) z parametrem α - zoptymalizowane z Numba."""
+    """Mapowanie kawałkowe (tent map) z parametrem α"""
     return alpha * x if x <= 0.5 else alpha * (1.0 - x)
 
 @njit
 def ccml_step(states: np.ndarray, alpha: float = ALPHA, epsilon: float = 0.05) -> np.ndarray:
-    """Jeden krok algorytmu CCML - zoptymalizowany z Numba."""
+    """Jeden krok algorytmu CCML"""
     L = states.size
     new_states = np.empty_like(states)
     for i in range(L):
@@ -30,10 +27,6 @@ def ccml_step(states: np.ndarray, alpha: float = ALPHA, epsilon: float = 0.05) -
         new_states[i] = ((1.0 - epsilon) * center + (epsilon * 0.5) * (left + right))
     return new_states
 
-# ---------------------------------------------------------------------
-# 2. Funkcje pomocnicze
-# ---------------------------------------------------------------------
-
 def print_ascii_histogram(hist_dict, max_width=50):
     max_value = max(hist_dict.values())
     for value, count in sorted(hist_dict.items()):
@@ -41,9 +34,9 @@ def print_ascii_histogram(hist_dict, max_width=50):
         print(f"{value:4}: {'#' * bar_length} ({count})")
 
 def get_binary_string(file_path, bit_count=1000):
-    """Odczytaj pierwsze bit_count bitów z pliku."""
+    """Odczytaj pierwsze bit_count bitów z pliku"""
     with open(file_path, 'rb') as f:
-        data = f.read((bit_count + 7) // 8)  # Odczytaj wystarczającą liczbę bajtów
+        data = f.read((bit_count + 7) // 8)
         
     binary_string = ""
     for byte in data:
@@ -52,7 +45,7 @@ def get_binary_string(file_path, bit_count=1000):
     return binary_string[:bit_count]
 
 def split_sequence(seq, n=2):
-    """Podziel sekwencję na n-gramy."""
+    """Podziel sekwencję na n-gramy"""
     return ["".join(seq[i:i+n]) for i in range(0, len(seq), n)]
 
 @njit
@@ -62,62 +55,39 @@ def calculate_new_bits(n_chaotic_bits, n_target_bits):
 
 @njit
 def get_bit_from_chaotic_state(x):
-    """Generuj bit z wartości zmiennoprzecinkowej stanu."""
     return 1 if x > 0.5 else 0
 
 @njit
 def vectorized_get_bit(states):
-    """Wektoryzowana wersja get_bit_from_chaotic_state."""
     return np.where(states > 0.5, 1, 0)
 
 @njit(parallel=True)
 def generate_bits_from_ccml(states, n_steps, n_bits, alpha=ALPHA, epsilon=0.05):
-    """
-    Generowanie bitów z układu CCML z określoną liczbą kroków.
-    Zoptymalizowana wersja z Numba.
-    """
+    """Generowanie bitów z układu CCML"""
     bits = np.zeros(n_bits, dtype=np.int8)
     current_states = states.copy()
     bit_index = 0
     
-    # Wykonaj określoną liczbę kroków CCML
     for _ in range(n_steps):
         if bit_index >= n_bits:
             break
             
-        # Wykonaj krok CCML
         current_states = ccml_step(current_states, alpha, epsilon)
         
-        # Generuj bity dla każdego stanu
         state_bits = vectorized_get_bit(current_states)
         
-        # Dodaj bity do wyjścia
         bits_to_copy = min(len(state_bits), n_bits - bit_index)
         bits[bit_index:bit_index + bits_to_copy] = state_bits[:bits_to_copy]
         bit_index += bits_to_copy
     
     return bits
 
-# ---------------------------------------------------------------------
-# 3. Główne funkcje CCML
-# ---------------------------------------------------------------------
-
 def run_ccml(filename, output_filename, N_target_bits=1000000, plot_filename=None, verbose=True):
-    """
-    Główna funkcja do uruchamiania algorytmu CCML na pliku wejściowym.
-    
-    Parametry:
-    - filename (str): Ścieżka do pliku wejściowego (źródło losowych bitów)
-    - output_filename (str): Ścieżka do pliku wyjściowego
-    - N_target_bits (int): Liczba bitów do wygenerowania
-    - plot_filename (str, optional): Ścieżka do zapisu wykresu rozkładu
-    - verbose (bool): Czy wyświetlać szczegółowe informacje
-    """
+    """Główna funkcja do uruchamiania algorytmu CCML na pliku wejściowym"""
     if not os.path.exists(filename):
         print(f"BŁĄD: Plik {filename} nie istnieje.")
         return
         
-    # Wczytaj sekwencję bitów
     with open(filename, "rb") as f:
         data_bytes = f.read()
     
@@ -160,7 +130,7 @@ def run_ccml(filename, output_filename, N_target_bits=1000000, plot_filename=Non
         current_states = ccml_step(current_states, ALPHA, EPSILON)
     
     # Generowanie bitów
-    n_steps = (n_chaotic_bits + L - 1) // L  # Ile kroków potrzeba
+    n_steps = (n_chaotic_bits + L - 1) // L
     
     if verbose:
         print(f"Generowanie {n_chaotic_bits} bitów w {n_steps} krokach CCML...")
@@ -189,60 +159,51 @@ def run_ccml(filename, output_filename, N_target_bits=1000000, plot_filename=Non
     return final_bits
 
 def analyze_distribution(bits, plot_filename=None):
-    """Analizuj rozkład n-gramów bitowych."""
-    n = 4  # Analizuj 4-gramy
+    """Analizuj rozkład bajtów w wyjściowych danych"""
+    if bits.size == 0:
+        print("Brak bitów wyjściowych do wygenerowania wykresu.")
+        return None
     
-    # Konwertuj bity na ciąg znaków
-    bitstring = ''.join(str(bit) for bit in bits[:1000000])  # Użyj maksymalnie 1M bitów dla szybkości
+    # Przygotuj bity do konwersji na bajty
+    num_total_bits = bits.size
+    padded_len_for_stats = ((num_total_bits + 7) // 8) * 8
+    padded_bits_for_stats = np.pad(bits, (0, padded_len_for_stats - num_total_bits), constant_values=0)
+    byte_array_for_stats = np.packbits(padded_bits_for_stats)
     
-    # Podziel na n-gramy
-    ngrams = split_sequence(bitstring, n)
+    if byte_array_for_stats.size == 0:
+        print("Brak danych bajtowych do wygenerowania wykresu.")
+        return None
     
-    # Policz wystąpienia
-    counts = Counter(ngrams)
-    
-    # Wypełnij brakujące n-gramy zerami
-    all_patterns = [format(i, f'0{n}b') for i in range(2**n)]
-    for pattern in all_patterns:
-        if pattern not in counts:
-            counts[pattern] = 0
-    
-    # Posortuj według wartości binarnej
-    sorted_counts = {k: counts[k] for k in sorted(counts.keys())}
-    
-    # Oblicz teoretyczny rozkład (powinien być równomierny)
-    total_ngrams = len(ngrams)
-    expected_count = total_ngrams / (2**n)
+    # Oblicz częstości i prawdopodobieństwa
+    counts = Counter(byte_array_for_stats)
+    probs = np.array([counts.get(i, 0) / byte_array_for_stats.size for i in range(256)])
     
     # Rysuj histogram
     plt.figure(figsize=(12, 6))
+    plt.bar(range(256), probs, width=1.0, color='darkslateblue')
     
-    # Indeksy dla osi X (wartości dziesiętne dla każdego wzorca binarnego)
-    x_indices = [int(pattern, 2) for pattern in sorted_counts.keys()]
+    # Ustawienia wykresu
+    output_filename = os.path.basename(plot_filename).replace('ccml_dist_', 'post_').replace('.png', '.bin')
+    plt.title(f"Rozkład bajtów w {output_filename}")
+    plt.xlabel("wartość bajtu (0-255)")
+    plt.ylabel("prawdopodobieństwo")
+    plt.xlim(-0.5, 255.5)
+    plt.ylim(0, probs.max() * 1.1 if probs.max() > 0 else 0.1)
     
-    # Rysuj słupki
-    plt.bar(x_indices, list(sorted_counts.values()), color='blue', alpha=0.7)
+    # Oblicz i wyświetl entropię
+    entropy = -sum(p * np.log2(p) for p in probs if p > 0)
+    global last_entropy
+    last_entropy = entropy
+    print(f"Shannon entropy ({output_filename}): {entropy:.4f} bits/symbol")
     
-    # Rysuj linię oczekiwaną
-    plt.axhline(y=expected_count, color='r', linestyle='-', label='Oczekiwany rozkład')
-    
-    plt.title(f"Rozkład {n}-gramów po CCML")
-    plt.xlabel(f"{n}-gram (binarny)")
-    plt.ylabel("Liczba wystąpień")
-    plt.xticks([0, 5, 10, 15], ['0000', '0101', '1010', '1111'])
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
+    # Zapisz wykres
     if plot_filename:
-        plt.savefig(plot_filename, dpi=300)
+        plt.savefig(plot_filename, dpi=150, bbox_inches="tight")
+        print(f"Wykres zapisany → {plot_filename}")
     
     plt.close()
     
-    return sorted_counts
-
-# ---------------------------------------------------------------------
-# Uruchomienie bezpośrednie
-# ---------------------------------------------------------------------
+    return counts
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

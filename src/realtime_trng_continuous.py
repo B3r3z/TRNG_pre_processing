@@ -3,12 +3,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
-#import ccml_optimized as ccml
-import ccml
+import ccml_optimized as ccml
+#import ccml
 import pyaudio
 import time
 import os
+import sys
 import datetime
+import subprocess
 from matplotlib import style
 style.use('ggplot')
 
@@ -32,6 +34,10 @@ if not os.path.exists(OUTPUT_DIR):
 
 global_lsb3_buffer = np.array([], dtype=np.uint8)
 global_raw_buffer = np.array([], dtype=np.uint8)
+# Zmienne do przechowywania informacji o ostatniej entropii i pliku
+last_entropy_lsb3 = 0.0
+last_entropy_post = 0.0
+last_output_file = ""
 def get_timestamp_filename(prefix, extension):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{OUTPUT_DIR}/{prefix}_{timestamp}.{extension}"
@@ -112,14 +118,16 @@ def process_audio_samples(timestamp):
     # Przetwarzanie CCML
     post_bin_filename = f"{OUTPUT_DIR}/post_{timestamp_short}.bin"
     plot_filename = f"{OUTPUT_DIR}/ccml_dist_{timestamp_short}.png"
-    ccml.run_ccml(
+    generated_bits = ccml.run_ccml(
         filename=source_bin_filename,
         output_filename=post_bin_filename,
         N_target_bits=N_BITS_PER_CHUNK,
         plot_filename=plot_filename
     )
     
-
+    # Zapisz informacje o ostatnim pliku
+    global last_output_file
+    last_output_file = post_bin_filename
     
     return source_bin_filename, post_bin_filename
 
@@ -188,6 +196,8 @@ def generate_plots(raw, lsb3, timestamp):
 
 # Funkcja do obliczania entropii
 def calculate_entropy(lsb3):
+    global last_entropy_lsb3
+    
     cnt = Counter(lsb3)
     probabilities = np.array([cnt[i]/len(lsb3) for i in range(8)])
     
@@ -201,6 +211,7 @@ def calculate_entropy(lsb3):
     else:
         H = -np.sum(entropy_terms)
     
+    last_entropy_lsb3 = H
     print(f"Entropia 3 LSB: {H:.4f} bitów na symbol")
     return H
 
@@ -237,12 +248,40 @@ def run_continuous_trng():
             cycle_start_time = time.time()
             current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             
+            # Wyczyść terminal
+            os.system('clear' if os.name == 'posix' else 'cls')
+            
+            # Nagłówek informacyjny
+            print(f"=== TRNG - Status [{datetime.datetime.now().strftime('%H:%M:%S')}] ===")
+            print(f"Urządzenie audio: {p.get_device_info_by_index(device_index)['name'] if device_index is not None else 'domyślne'}")
+            
+            # Nagraj próbki audio
             raw_samples = record_audio_samples(p, device_index, SAMPLE_TIME)
             add_samples_to_buffer(raw_samples)
             
             time_since_last_processing = time.time() - last_processing_time
             buffer_ready = len(global_lsb3_buffer) >= required_samples
             
+            # Status ostatniej entropii
+            print("\n--- Informacje o entropii ---")
+            print(f"Ostatnia entropia 3 LSB: {last_entropy_lsb3:.4f} bitów na symbol")
+            # Informacja o ostatnim pliku
+            if last_output_file:
+                print(f"Ostatni plik wyjściowy: {os.path.basename(last_output_file)}")
+                # Próba wczytania entropii z ccml_optimized
+                try:
+                    if hasattr(ccml, 'last_entropy') and ccml.last_entropy > 0:
+                        print(f"Entropia po CCML: {ccml.last_entropy:.4f} bitów na symbol")
+                except:
+                    pass
+            
+            # Status bufora
+            buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
+            print(f"\n--- Status bufora ---")
+            print(f"Postęp: {buffer_percentage:.1f}% ({len(global_lsb3_buffer):,}/{required_samples:,} próbek)")
+            print(f"Czas od ostatniego wygenerowania pliku: {int(time_since_last_processing)} s / {INTERVAL_SECONDS} s")
+            
+            # Przetwarzanie
             if time_since_last_processing >= INTERVAL_SECONDS:
                 if buffer_ready:
                     print(f"\n--- Przetwarzanie danych [{current_time}] ---")
@@ -259,7 +298,8 @@ def run_continuous_trng():
             target_cycle_time = max(0.5, SAMPLE_TIME * 0.2)
             short_sleep = max(0.1, min(target_cycle_time - cycle_duration, SAMPLE_TIME * 0.5))
             
-            print(f"Cykl nagrywania: {cycle_duration:.2f}s, następny cykl za {short_sleep:.2f}s")
+            print(f"\nCykl nagrywania: {cycle_duration:.2f}s, następny cykl za {short_sleep:.2f}s")
+            print("\nNaciśnij Ctrl+C aby zakończyć")
             time.sleep(short_sleep)
     
     except KeyboardInterrupt:
