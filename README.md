@@ -1,6 +1,7 @@
 # TRNG - Generator Prawdziwie Losowych Liczb
-
-## Opis Ogólny
+3. Systematycznie nagrywa fragmenty dźwięku (domyślnie po 15 sekund).
+4. Ekstrahuje 3 najmniej znaczące bity z każdej próbki dźwiękowej i gromadzi je w buforze.
+5. Co określony czas (domyślnie 300 sekund) przetwarza zebrane dane, generując pliki z losowymi bitami o rozmiarze 13 MB (104 miliony bitów). Opis Ogólny
 
 Projekt implementuje system generowania prawdziwie losowych liczb (True Random Number Generator) z wykorzystaniem szumu audio oraz post-processingu opartego na algorytmie Coupled Chaotic Map Lattice (CCML). System pozwala na przetwarzanie istniejących plików audio jak również ciągłe nagrywanie i przetwarzanie w czasie rzeczywistym.
 

@@ -13,18 +13,18 @@ import subprocess
 from matplotlib import style
 style.use('ggplot')
 
-CHUNK = 4096
+CHUNK = 8192
 FORMAT = pyaudio.paUInt8
 CHANNELS = 1
 RATE = 44100
 DEVICE_INDEX = None
 
-N_BITS_PER_CHUNK = 13_000_000  # wymagane dla testów NIST
-INTERVAL_SECONDS = 120
-SAMPLE_TIME = 5
+N_BITS_PER_CHUNK = 104_000_000  # 13MB (104 miliony bitów)
+INTERVAL_SECONDS = 300  # 5 minut między generowaniem plików
+SAMPLE_TIME = 15  # czas nagrywania pojedynczego fragmentu
 OUTPUT_DIR = "output"
 
-MAX_BUFFER_SIZE = 20000000
+MAX_BUFFER_SIZE = 160000000
 BUFFER_SAFETY_MARGIN = 0.1
 
 
@@ -33,7 +33,6 @@ if not os.path.exists(OUTPUT_DIR):
 
 global_lsb3_buffer = np.array([], dtype=np.uint8)
 global_raw_buffer = np.array([], dtype=np.uint8)
-# Zmienne do przechowywania informacji o ostatniej entropii i pliku
 last_entropy_source = 0.0
 last_entropy_post = 0.0
 last_output_file = ""
@@ -60,7 +59,6 @@ def record_audio_samples(p, device_index, duration_seconds):
     stream.close()
     
     raw_samples = np.concatenate(frames)
-    # Komunikat został usunięty stąd, aby nie pojawiał się i nie znikał po wyczyszczeniu terminala
     return raw_samples
 
 def process_audio_samples(timestamp):
@@ -83,10 +81,10 @@ def process_audio_samples(timestamp):
         
         lsb3_to_use = lsb3_to_use.astype(np.uint8)
         
-        # Extract the 3 LSB and flatten them into a single bit stream
+        # Przekształcenie 3 LSB w strumień bitów
         bit_stream = np.vstack([((lsb3_to_use >> i) & 1) for i in [0,1,2]]).T.flatten()[:N_BITS_PER_CHUNK]
         
-        # Pack the bits into bytes for file storage
+        # Pakowanie bitów w bajty do zapisania w pliku
         bit_bytes = np.packbits(bit_stream)
         source_bin_filename = f"{OUTPUT_DIR}/source_{timestamp_short}.bin"
         
@@ -157,7 +155,6 @@ def add_samples_to_buffer(raw_samples):
     if len(global_lsb3_buffer) > max_buffer_size:
         excess = len(global_lsb3_buffer) - max_buffer_size
         global_lsb3_buffer = global_lsb3_buffer[excess:]
-        # Usunięto wyświetlanie komunikatu tutaj, zostanie pokazane w głównej pętli
     
     if len(global_raw_buffer) > len(global_lsb3_buffer):
         global_raw_buffer = global_raw_buffer[-len(global_lsb3_buffer):]
@@ -274,26 +271,24 @@ def calculate_source_entropy(bit_stream):
     return H
 
 def generate_source_plots(byte_array, timestamp):
-    # 1) Histogram rozkładu prawdopodobieństwa bajtów
+    # Histogram rozkładu prawdopodobieństwa bajtów
     plt.figure(figsize=(10,6))
     plt.hist(byte_array,
              bins=256,
              range=(0,255),
-             density=True,       # prawdopodobieństwo
+             density=True,
              color='darkslateblue',
              alpha=0.8)
     plt.title("Empiryczny rozkład bajtów w source.bin")
     plt.xlabel("Wartość bajtu")
     plt.ylabel("Prawdopodobieństwo p_i")
-    # odkomentuj, jeśli chcesz log-skalę:
-    # plt.yscale('log')
     plt.xlim(-0.5, 255.5)
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{OUTPUT_DIR}/source_dist_{timestamp}.png", dpi=150)
     plt.close()
 
-    # 2) (opcjonalnie) rozkład bitów 0/1 – tylko jeśli chcesz
+    # Rozkład bitów 0/1
     bit_array = np.unpackbits(byte_array, bitorder='big')
     p0 = np.mean(bit_array==0)
     p1 = 1 - p0
@@ -308,13 +303,11 @@ def generate_source_plots(byte_array, timestamp):
     plt.savefig(f"{OUTPUT_DIR}/source_bits_{timestamp}.png", dpi=150)
     plt.close()
 
-    # 3) Zwracamy prawdopodobieństwa bajtowe, jeśli potrzebujesz
     counts = Counter(byte_array)
     probs = np.array([counts[i]/len(byte_array) for i in range(256)])
     return probs
 
 
-# Zmienne do przechowywania informacji o ostatniej entropii i pliku
 last_entropy_source = 0.0
 last_entropy_post = 0.0
 last_output_file = ""
@@ -355,10 +348,8 @@ def run_continuous_trng():
             current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             
             print(f"\nRozpoczęcie nagrywania próbek audio na {SAMPLE_TIME} sekund...")
-            # Nagraj próbki audio w cichym trybie (bez wyświetlania komunikatów podczas nagrywania)
             raw_samples = record_audio_samples(p, device_index, SAMPLE_TIME)
             
-            # Wyczyść terminal dopiero po nagraniu próbek
             os.system('clear' if os.name == 'posix' else 'cls')
             
             # Nagłówek informacyjny
@@ -371,9 +362,7 @@ def run_continuous_trng():
             time_since_last_processing = time.time() - last_processing_time
             buffer_ready = len(global_lsb3_buffer) >= required_samples
             
-            # Status ostatniej entropii
             print("\n--- Informacje o entropii ---")
-            # Pokaż entropię obu plików w bitach/symbol dla spójnego porównania
             bit_per_symbol_source = last_entropy_source * 8  # Konwertuj z bit/bit na bit/symbol
             print(f"Entropia source.bin: {bit_per_symbol_source:.4f} bitów/symbol | {last_entropy_source:.4f} bitów/bit")
             
@@ -384,7 +373,6 @@ def run_continuous_trng():
                     post_bit_per_bit = last_entropy_post / 8  # Konwertuj z bit/symbol na bit/bit
                     print(f"Entropia po CCML: {last_entropy_post:.4f} bitów/symbol | {post_bit_per_bit:.4f} bitów/bit")
             
-            # Status bufora
             buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
             print(f"\n--- Status bufora ---")
             print(f"Bufor zawiera {len(global_lsb3_buffer):,} próbek 3LSB ({len(global_lsb3_buffer)*3:,} bitów)")
@@ -392,7 +380,6 @@ def run_continuous_trng():
             print(f"Postęp: {buffer_percentage:.1f}% (limit bufora: {MAX_BUFFER_MULTIPLIER:.1f}x)")
             print(f"Czas od ostatniego wygenerowania pliku: {int(time_since_last_processing)} s / {INTERVAL_SECONDS} s")
             
-            # Jeśli bufor został przycięty
             max_buffer_size = int(required_samples * MAX_BUFFER_MULTIPLIER)
             if len(global_lsb3_buffer) >= max_buffer_size:
                 print(f"Status: Bufor osiągnął maksymalną pojemność ({max_buffer_size:,} próbek)")
@@ -411,7 +398,6 @@ def run_continuous_trng():
             
             cycle_duration = time.time() - cycle_start_time
             
-            # Dłuższy czas między cyklami, aby użytkownik mógł odczytać status
             target_cycle_time = max(1.0, SAMPLE_TIME * 0.5)
             short_sleep = max(1.0, min(target_cycle_time - cycle_duration, SAMPLE_TIME * 0.5))
             
