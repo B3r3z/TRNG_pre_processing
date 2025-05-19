@@ -118,19 +118,20 @@ def process_audio_samples(timestamp):
     # Przetwarzanie CCML
     post_bin_filename = f"{OUTPUT_DIR}/post_{timestamp_short}.bin"
     plot_filename = f"{OUTPUT_DIR}/ccml_dist_{timestamp_short}.png"
-    generated_bits = ccml.run_ccml(
+    ccml.run_ccml(
         filename=source_bin_filename,
         output_filename=post_bin_filename,
         N_target_bits=N_BITS_PER_CHUNK,
         plot_filename=plot_filename,
-        verbose=False  # Mniej komunikatów diagnostycznych
+        verbose=False
     )
     
     # Zapisz informacje o ostatnim pliku i entropii
     global last_output_file, last_entropy_post
     last_output_file = post_bin_filename
     if hasattr(ccml, 'last_entropy'):
-        last_entropy_post = ccml.last_entropy
+        # Konwersja entropii z bitów/symbol (bajt) na bity/bit
+        last_entropy_post = ccml.last_entropy / 8.0
     
     return source_bin_filename, post_bin_filename
 
@@ -215,8 +216,6 @@ def generate_raw_plots(raw, timestamp):
 
 # Funkcja do obliczania entropii dla source.bin (strumień bitów)
 def calculate_source_entropy(bit_stream):
-    global last_entropy_source
-    
     # Konwersja strumienia bitów na bajty dla analizy
     bit_count = len(bit_stream)
     padding = (8 - bit_count % 8) % 8
@@ -244,9 +243,6 @@ def calculate_source_entropy(bit_stream):
     else:
         H = -np.sum(entropy_terms)
     
-    # Normalizacja do bitów na symbol (bajt)
-    H_normalized = H / 8.0
-    
     # Obliczanie entropii bezpośrednio na poziomie bitów
     bit_array = np.unpackbits(byte_array)
     bit_counts = Counter(bit_array)
@@ -260,12 +256,10 @@ def calculate_source_entropy(bit_stream):
         H_bits -= p_1 * np.log2(p_1)
     
     global last_entropy_source
-    last_entropy_source = H_normalized  # Zachowujemy znormalizowaną entropię bajtową
+    last_entropy_source = H_bits  # Używamy entropii bitowej jako głównej miary
     
-    # Wyświetl obie wartości entropii dla porównania
-    print(f"Entropia source.bin: {H:.4f} bitów/symbol (bajt)")
-    print(f"Entropia source.bin: {H_normalized:.4f} bitów/bit")
-    print(f"Entropia bitowa: {H_bits:.4f} bitów/bit (idealna: 1.0)")
+    # Wyświetl wartość entropii
+    print(f"Entropia source.bin: {H_bits:.4f} bitów/bit (idealna: 1.0)")
     
     # Zwróć pełną wartość entropii (bitów/bajt) a nie znormalizowaną
     return H
@@ -363,15 +357,13 @@ def run_continuous_trng():
             buffer_ready = len(global_lsb3_buffer) >= required_samples
             
             print("\n--- Informacje o entropii ---")
-            bit_per_symbol_source = last_entropy_source * 8  # Konwertuj z bit/bit na bit/symbol
-            print(f"Entropia source.bin: {bit_per_symbol_source:.4f} bitów/symbol | {last_entropy_source:.4f} bitów/bit")
+            print(f"Entropia source.bin: {last_entropy_source:.4f} bitów/bit (idealna: 1.0)")
             
             # Informacja o ostatnim pliku
             if last_output_file:
                 print(f"Ostatni plik wyjściowy: {os.path.basename(last_output_file)}")
                 if last_entropy_post > 0:
-                    post_bit_per_bit = last_entropy_post / 8  # Konwertuj z bit/symbol na bit/bit
-                    print(f"Entropia po CCML: {last_entropy_post:.4f} bitów/symbol | {post_bit_per_bit:.4f} bitów/bit")
+                    print(f"Entropia po CCML: {last_entropy_post:.4f} bitów/bit (idealna: 1.0)")
             
             buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
             print(f"\n--- Status bufora ---")
