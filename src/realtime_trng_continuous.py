@@ -130,8 +130,9 @@ def process_audio_samples(timestamp):
     global last_output_file, last_entropy_post
     last_output_file = post_bin_filename
     if hasattr(ccml, 'last_entropy'):
-        # Konwersja entropii z bitów/symbol (bajt) na bity/bit
-        last_entropy_post = ccml.last_entropy / 8.0
+        # Entropia z ccml.last_entropy jest już w bitach/symbol (bajt)
+        last_entropy_post = ccml.last_entropy
+        print(f"Entropia po CCML: {last_entropy_post:.4f} bitów/symbol (idealna: 8.0)")
     
     return source_bin_filename, post_bin_filename
 
@@ -243,23 +244,12 @@ def calculate_source_entropy(bit_stream):
     else:
         H = -np.sum(entropy_terms)
     
-    # Obliczanie entropii bezpośrednio na poziomie bitów
-    bit_array = np.unpackbits(byte_array)
-    bit_counts = Counter(bit_array)
-    p_0 = bit_counts.get(0, 0)/len(bit_array)
-    p_1 = bit_counts.get(1, 0)/len(bit_array)
-    
-    H_bits = 0.0
-    if p_0 > 0:
-        H_bits -= p_0 * np.log2(p_0)
-    if p_1 > 0:
-        H_bits -= p_1 * np.log2(p_1)
-    
+    # Zapisujemy entropię na poziomie bajtów (bits/symbol) zgodnie z wzorem Shannona
     global last_entropy_source
-    last_entropy_source = H_bits  # Używamy entropii bitowej jako głównej miary
+    last_entropy_source = H  # Używamy pełnej entropii bajtowej jako głównej miary
     
     # Wyświetl wartość entropii
-    print(f"Entropia source.bin: {H_bits:.4f} bitów/bit (idealna: 1.0)")
+    print(f"Entropia source.bin: {H:.4f} bitów/symbol")
     
     # Zwróć pełną wartość entropii (bitów/bajt) a nie znormalizowaną
     return H
@@ -357,13 +347,11 @@ def run_continuous_trng():
             buffer_ready = len(global_lsb3_buffer) >= required_samples
             
             print("\n--- Informacje o entropii ---")
-            print(f"Entropia source.bin: {last_entropy_source:.4f} bitów/bit (idealna: 1.0)")
+            print(f"Entropia source.bin: {last_entropy_source:.4f} bitów/symbol (idealna: 8.0)")
             
             # Informacja o ostatnim pliku
             if last_output_file:
                 print(f"Ostatni plik wyjściowy: {os.path.basename(last_output_file)}")
-                if last_entropy_post > 0:
-                    print(f"Entropia po CCML: {last_entropy_post:.4f} bitów/bit (idealna: 1.0)")
             
             buffer_percentage = min(100, len(global_lsb3_buffer) / required_samples * 100)
             print(f"\n--- Status bufora ---")
@@ -384,6 +372,10 @@ def run_continuous_trng():
                     
                     if source_bin is not None:
                         last_processing_time = time.time()
+                        # Wyświetl zarówno informacje o pliku źródłowym jak i wyjściowym razem
+                        print(f"Wygenerowano pliki:")
+                        print(f"  - {os.path.basename(source_bin)} (źródłowy)")
+                        print(f"  - {os.path.basename(post_bin)} (po CCML)")
                 else:
                     processing_pct = len(global_lsb3_buffer) / required_samples * 100
                     print(f"\n--- Czekam na więcej danych ({processing_pct:.1f}%) ---")
